@@ -12,19 +12,20 @@ from scipy.optimize import minimize
 
 
 # 1. CORE MATHEMATICAL ENGINE
-def get_flat_cer_hz(z, H0, Omega_vac):
-    """
-    Strict flatline baseline:
-    alpha = 0
-    Omega_m = 1 - Omega_vac
+def objective_function(params):
+    H0, Omega_vac = params
 
-    H(z) = H0 * sqrt(
-        Omega_vac + Omega_m * (1 + z)**3
+    z_obs = CC_DATA[:, 0]
+    H_obs = CC_DATA[:, 1]
+    sigma_obs = CC_DATA[:, 2]
+
+    H_model = get_flat_cer_hz(
+        z_obs, H0, Omega_vac
     )
-    """
-    x = 1.0 + z
-    Omega_m = 1.0 - Omega_vac
 
+    residuals = (H_obs - H_model) / sigma_obs
+    return float(np.sum(residuals ** 2))
+    
     # Strict baseline: exponent is fixed at 3
     F = Omega_vac + Omega_m * (x ** 3.0)
 
