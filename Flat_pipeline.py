@@ -1,16 +1,77 @@
 
 """
-COSMIC EVOLUTION RATE ENGINE (CER) - HIGH-REDSHIFT HORIZON MODULE
-=================================================================
-Calculates the comoving plasma sound horizon scale (r_d) at decoupling.
-Expects raw parameter inputs from execution pipelines.
+COSMIC EVOLUTION RATE ENGINE (CER) - STRICT FLATLINE BASELINE
+============================================================
+Alpha fixed to 0.
+Fits H0 and Omega_vac using 32 cosmic chronometer measurements
+with diagonal observational uncertainties.
 """
 
 import numpy as np
 from scipy.optimize import minimize
-from core_engine import get_flat_cer_hz, CC_DATA
 
+
+# 1. CORE MATHEMATICAL ENGINE
+def get_flat_cer_hz(z, H0, Omega_vac):
+    """
+    Strict flatline baseline:
+    alpha = 0
+    Omega_m = 1 - Omega_vac
+
+    H(z) = H0 * sqrt(
+        Omega_vac + Omega_m * (1 + z)**3
+    )
+    """
+    x = 1.0 + z
+    Omega_m = 1.0 - Omega_vac
+
+    # Strict baseline: exponent is fixed at 3
+    F = Omega_vac + Omega_m * (x ** 3.0)
+
+    return H0 * np.sqrt(np.clip(F, 0.0, None))
+
+
+# 2. MASTER 32-POINT COSMIC CHRONOMETER DATASET
+# Columns: redshift, H(z) [km/s/Mpc], sigma_H(z)
+CC_DATA = np.array([
+    [0.0700, 69.0, 19.60],
+    [0.0900, 69.0, 12.00],
+    [0.1200, 68.6, 26.20],
+    [0.1700, 83.0, 8.00],
+    [0.1791, 75.0, 4.00],
+    [0.1993, 75.0, 5.00],
+    [0.2000, 72.9, 29.60],
+    [0.2700, 77.0, 14.00],
+    [0.2800, 88.8, 36.60],
+    [0.3520, 83.0, 14.00],
+    [0.3802, 83.0, 13.50],
+    [0.4000, 95.0, 17.00],
+    [0.4004, 77.0, 10.20],
+    [0.4249, 87.1, 11.20],
+    [0.4497, 92.8, 12.90],
+    [0.4783, 80.9, 9.00],
+    [0.4800, 97.0, 62.00],
+    [0.5930, 104.0, 13.00],
+    [0.6800, 92.0, 8.00],
+    [0.7810, 105.0, 12.00],
+    [0.8750, 125.0, 17.00],
+    [0.8800, 90.0, 40.00],
+    [0.9000, 117.0, 23.00],
+    [1.0370, 154.0, 20.00],
+    [1.3000, 168.0, 17.00],
+    [1.3630, 160.0, 33.60],
+    [1.4300, 177.0, 18.00],
+    [1.5300, 140.0, 14.00],
+    [1.7500, 202.0, 40.00],
+    [1.9650, 186.5, 50.43],
+    [1.3900, 167.0, 11.40],
+    [0.5100, 90.4, 1.90]
+])
+
+
+# 3. DIAGONAL-ERROR OBJECTIVE FUNCTION
 def objective_function(params):
+    """Calculate chi-squared using the supplied uncertainties."""
     H0, Omega_vac = params
 
     z_obs = CC_DATA[:, 0]
@@ -22,44 +83,48 @@ def objective_function(params):
     )
 
     residuals = (H_obs - H_model) / sigma_obs
-    return float(np.sum(residuals ** 2))
-    
-def get_sound_horizon(H0, Omega_vac, alpha, Omega_b=0.0493, Ol_gamma=5.4e-5):
-    """
-    Numerically integrates the early universe plasma pressure waves down to the
-    decoupling epoch to determine the comoving sound horizon scale r_d (in Mpc).
-    
-    Parameters:
-      H0         : Hubble Constant (km/s/Mpc)
-      Omega_vac  : Dark Energy / Vacuum density baseline
-      alpha      : Evolving fluid interaction exponent
-      Omega_b    : Baryon density baseline
-      Ol_gamma   : Radiation density baseline (Photons + Neutrinos)
-      
-    Returns:
-      float: The calculated comoving sound horizon scale r_d in Mpc.
-    """
-    speed_of_light = 299792.458 
-    Omega_m = 1.0 - Omega_vac
-    
-    # Precise drag epoch boundary
-    z_d = 1059.3402
-    
-    def integrand(z):
-        x = 1.0 + z
-        
-        # Speed of sound in the relativistic photon-baryon plasma
-        baryon_photon_ratio = (3.0 * Omega_b) / (4.0 * Ol_gamma * x)
-        c_s = speed_of_light / np.sqrt(3.0 * (1.0 + baryon_photon_ratio))
-        
-        # High-redshift Hubble rate expansion including radiation scale factor
-        matter_fluid = Omega_m * (x ** (3.0 - alpha))
-        radiation_fluid = Ol_gamma * (x ** 4.0)
-        
-        H_z = H0 * np.sqrt(np.clip(Omega_vac + matter_fluid + radiation_fluid, 1e-10, None))
-        
-        return c_s / H_z
+    chi2 = np.sum(residuals ** 2)
 
-    # Numerically integrate up to an effective infinity proxy boundary
-    r_d_comoving, _ = integrate.quad(integrand, z_d, 1e6, epsrel=1e-6)
-    return float(r_d_comoving)
+    return float(chi2)
+
+
+# 4. BOUNDED OPTIMIZATION
+if __name__ == "__main__":
+    print("CER Strict Flatline Baseline")
+    print("Alpha fixed at 0")
+    print("Fitting H0 and Omega_vac only")
+
+    initial_guess = [68.5, 0.70]
+
+    param_bounds = [
+        (58.0, 78.0),   # H0
+        (0.5, 0.88)     # Omega_vac
+    ]
+
+    result = minimize(
+        objective_function,
+        initial_guess,
+        method="L-BFGS-B",
+        bounds=param_bounds
+    )
+
+    if result.success:
+        H0_fit, Omega_vac_fit = result.x
+        Omega_m_fit = 1.0 - Omega_vac_fit
+        dof = len(CC_DATA) - 2
+
+        print("\nOPTIMIZATION CONVERGED")
+        print("-" * 45)
+        print(f"H0         = {H0_fit:.4f} km/s/Mpc")
+        print(f"Omega_vac  = {Omega_vac_fit:.4f}")
+        print(f"Omega_m    = {Omega_m_fit:.4f}")
+        print("Alpha      = 0 (fixed)")
+        print("-" * 45)
+        print(f"Total chi2   = {result.fun:.4f}")
+        print(f"Degrees of freedom = {dof}")
+        print(f"Reduced chi2 = {result.fun / dof:.4f}")
+        print(f"Optimizer message: {result.message}")
+
+    else:
+        print("\nOPTIMIZATION FAILED")
+        print(result.message)
