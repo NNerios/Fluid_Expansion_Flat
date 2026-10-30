@@ -1,3 +1,4 @@
+
 """
 COSMIC EVOLUTION RATE ENGINE (CER) - HIGH-REDSHIFT HORIZON MODULE
 =================================================================
@@ -6,7 +7,8 @@ Expects raw parameter inputs from execution pipelines.
 """
 
 import numpy as np
-import scipy.integrate as integrate
+from scipy.optimize import minimize
+from core_engine import get_flat_cer_hz, CC_DATA
 
 def get_sound_horizon(H0, Omega_vac, alpha, Omega_b=0.0493, Ol_gamma=5.4e-5):
     """
