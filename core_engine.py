@@ -95,7 +95,8 @@ def objective_function(params, data=None):
         raise ValueError(
             "data must be finite and all sigma values positive"
         )
-
+R_D_FIXED = 144.5724  # Mpc; manually calculated using horizon_engine.py
+Z_D_FIXED = 1059.3402
     model = get_flat_cer_hz(
         tab[:, 0],
         float(params[0]),
