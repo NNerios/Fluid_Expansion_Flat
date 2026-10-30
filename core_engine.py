@@ -124,41 +124,33 @@ tau_sobolev = (3.0 * nH_z * (lambda_lyalpha**3) * 6.25e8) / (8.0 * np.pi * H_z)
 return (1.0 / (tau_sobolev + 1.0)) * (6.25e8)
 
 
-def solve_qss_populations(self, z, x_e, Tm, Tr):
+    def solve_qss_populations(self, z, x_e, Tm, Tr):
+        """Matrix inversion for excited atomic states."""
+        A_2s, A_2p, B_2s, B_2p, R_2p_2s = self.get_atomic_rates(Tm, Tr)
+        R_LyA = self.get_lyman_alpha_escape(z, x_e)
+        
+        nH_z = self.nH0_cm3 * (1.0 + z)**3
+        x_1s = 1.0 - x_e
+        thermal_excitation = np.exp(-self.E_21 * self.eV_to_K / Tr)
 
-"""Matrix inversion for excited atomic states."""
-
-A_2s, A_2p, B_2s, B_2p, R_2p_2s = self.get_atomic_rates(Tm, Tr)
-
-R_LyA = self.get_lyman_alpha_escape(z, x_e)
-
-
-nH_z = self.nH0_cm3 * (1.0 + z)**3
-
-x_1s = 1.0 - x_e
-
-thermal_excitation = np.exp(-self.E_21 * self.eV_to_K / Tr)
-
-
-M = np.array([
-
-[B_2s + 9.0R_2p_2s + self.Lambda_2s, -3.0R_2p_2s],
-
-[-3.0*R_2p_2s, B_2p + R_2p_2s + R_LyA]
-
-])
-
-
-Y = np.array([
-
-nH_z * (x_e2) * A_2s + self.Lambda_2s * x_1s * thermal_excitation,
-
-nH_z * (x_e2) * A_2p + 3.0 * R_LyA * x_1s * thermal_excitation
-
- ])
-
-
-return np.linalg.solve(M, Y)[0], np.linalg.solve(M, Y)[1], A_2s, A_2p, B_2s, B_2p
+        M = np.array([
+            [B_2s + 9.0*R_2p_2s + self.Lambda_2s, -3.0*R_2p_2s],
+            [-3.0*R_2p_2s,                         B_2p + R_2p_2s + R_LyA]
+        ])
+        
+        Y = np.array([
+            nH_z * (x_e**2) * A_2s + self.Lambda_2s * x_1s * thermal_excitation,
+            nH_z * (x_e**2) * A_2p + 3.0 * R_LyA * x_1s * thermal_excitation
+        ])
+        
+        # Execute the matrix linear system solver
+        x_excited = np.linalg.solve(M, Y)
+        
+        # Extract discrete individual scalar components safely by index
+        x_2s = x_excited[0]
+        x_2p = x_excited[1]
+        
+        return x_2s, x_2p, A_2s, A_2p, B_2s, B_2p
 
 
 def get_compton_rate(self, z, x_e):
