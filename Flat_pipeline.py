@@ -1,61 +1,62 @@
 """
 Flat_pipeline.py
 ===========================================================================
-Data pipeline execution hub. Optimizes cosmological data profiles, 
-extracts parameter vectors, and integrates the ionization timeline.
+FLAT DATA PIPELINE RUNNER: Links background optimization, 
+horizons, and early-universe recombination tracking into one unified loop.
 """
-
 import numpy as np
 from core_engine import run_background_optimization, PrimordialRecombinationModule
+from horizon_engine import CosmologicalHorizonCalculator
 
-def execute_recombination_pipeline(z_start=1500.0, z_end=800.0, step_size=-0.5):
-    """
-    Finds cosmological best-fit criteria via cosmic chronometers, 
-    then projects early universe free electron fractions forward.
-    """
+def execute_complete_pipeline(z_start=1500.0, z_end=800.0, step_size=-1.0, alpha=0.0):
     print("================================================================")
-    print("STEP 1: CALCULATING OPTIMAL BACKGROUND BACKGROUND CONFIGURATION")
+    print(f"STEP 1: BACKGROUND MINIMIZATION (Alpha Fixed to {alpha})")
     print("================================================================")
-    
-    # 1. Run optimization directly out of engine data metrics
-    H0_opt, Omega_vac_opt = run_background_optimization()
-    print(f"-> Optimization Complete: H0 = {H0_opt:.4f} | Omega_vac = {Omega_vac_opt:.4f}")
-    
-    # 2. Wire optimized baseline coordinates into the recombination tracker
-    rec_engine = PrimordialRecombinationModule(H0_fit=H0_opt, Omega_vac_fit=Omega_vac_opt)
-    
-    current_z = z_start
-    current_xe = 0.9999
-    
-    z_stream = []
-    xe_stream = []
+    H0_opt, Omega_vac_opt = run_background_optimization(alpha=alpha)
+    print(f"Best-Fit Params -> H0: {H0_opt:.4f} km/s/Mpc | Omega_vac: {Omega_vac_opt:.4f}")
     
     print("\n================================================================")
-    print(f"STEP 2: RUNNING IONIZATION VECTOR TRACKING: z=[{z_start} -> {z_end}]")
+    print("STEP 2: RUNNING HORIZON CALCULATIONS")
     print("================================================================")
+    horizon_calc = CosmologicalHorizonCalculator(H0_opt, Omega_vac_opt, alpha=alpha)
+    print(f"Particle Horizon at z=0   : {horizon_calc.particle_horizon(0.0):.2f} Mpc")
+    print(f"Cosmic Event Horizon at z=0: {horizon_calc.event_horizon(0.0):.2f} Mpc")
+    print(f"Comoving Distance to CMB (z=1100): {horizon_calc.comoving_distance(1100.0):.2f} Mpc")
+
+    print("\n================================================================")
+    print(f"STEP 3: HYREC RECOMBINATION EVOLUTION (z={z_start} -> {z_end})")
+    print("================================================================")
+    rec_engine = PrimordialRecombinationModule(H0_fit=H0_opt, Omega_vac_fit=Omega_vac_opt, alpha=alpha)
+    
+    current_z = z_start
+    # State tracking: [x_e, T_m]
+    state = np.array([0.9999, rec_engine.T_cmb_0 * (1.0 + z_start)]) 
+    
+    z_history, xe_history, tm_history = [], [], []
     
     while current_z >= z_end:
-        z_stream.append(current_z)
-        xe_stream.append(current_xe)
+        z_history.append(current_z)
+        xe_history.append(state[0])
+        tm_history.append(state[1])
         
-        # RK4 Integration Loops Slices
-        k1 = step_size * rec_engine.dx_e_dz(current_z, current_xe)
-        k2 = step_size * rec_engine.dx_e_dz(current_z + 0.5 * step_size, current_xe + 0.5 * k1)
-        k3 = step_size * rec_engine.dx_e_dz(current_z + 0.5 * step_size, current_xe + 0.5 * k2)
-        k4 = step_size * rec_engine.dx_e_dz(current_z + step_size, current_xe + k3)
+        # Core RK4 Integration step using the coupled system
+        k1 = step_size * rec_engine.dx_e_dz(current_z, state)
+        k2 = step_size * rec_engine.dx_e_dz(current_z + 0.5 * step_size, state + 0.5 * k1)
+        k3 = step_size * rec_engine.dx_e_dz(current_z + 0.5 * step_size, state + 0.5 * k2)
+        k4 = step_size * rec_engine.dx_e_dz(current_z + step_size, state + k3)
         
-        current_xe += (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        state += (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
         current_z += step_size
         
-        # Handle analytical floating point boundaries
-        current_xe = np.clip(current_xe, 1e-6, 1.0)
+        # Enforce physical parameters boundary limits
+        state[0] = np.clip(state[0], 1e-6, 1.0)
         
-    print("-> Pipeline Recombination Sequence Finalized.")
-    return np.array(z_stream), np.array(xe_stream)
+    print("-> Pipeline integration tasks finished completely.")
+    return np.array(z_history), np.array(xe_history), np.array(tm_history)
 
 if __name__ == "__main__":
-    redshifts, electron_fractions = execute_recombination_pipeline()
-    print("-" * 64)
-    print(f"Processed Epochs Count : {len(redshifts)} intervals.")
-    print(f"Residual Free Electron Fraction (x_e) at z={redshifts[-1]}: {electron_fractions[-1]:.6e}")
-    print("-" * 64)
+    z, xe, tm = execute_complete_pipeline()
+    print("\n" + "-"*64)
+    print(f"Final Free Electron Fraction x_e at z={z[-1]}: {xe[-1]:.6e}")
+    print(f"Final Matter Temperature T_m at z={z[-1]}      : {tm[-1]:.2f} K")
+    print("-"*64)
