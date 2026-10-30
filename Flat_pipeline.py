@@ -10,6 +10,20 @@ import numpy as np
 from scipy.optimize import minimize
 from core_engine import get_flat_cer_hz, CC_DATA
 
+def objective_function(params):
+    H0, Omega_vac = params
+
+    z_obs = CC_DATA[:, 0]
+    H_obs = CC_DATA[:, 1]
+    sigma_obs = CC_DATA[:, 2]
+
+    H_model = get_flat_cer_hz(
+        z_obs, H0, Omega_vac
+    )
+
+    residuals = (H_obs - H_model) / sigma_obs
+    return float(np.sum(residuals ** 2))
+    
 def get_sound_horizon(H0, Omega_vac, alpha, Omega_b=0.0493, Ol_gamma=5.4e-5):
     """
     Numerically integrates the early universe plasma pressure waves down to the
