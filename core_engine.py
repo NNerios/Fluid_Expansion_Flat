@@ -7,19 +7,28 @@ Tracks flat expansion history kernels, horizons, and recombination variables.
 import numpy as np
 from scipy.optimize import minimize
 
-def get_flat_cer_hz(z, H0, Omega_vac, alpha=0.0, Omega_r=9.3e-5):
-    """
-    Evaluates the flat early/late-time CER expansion history kernel.
-    alpha = 0 represents your strict baseline model.
-    """
-    x = 1.0 + z
+def get_flat_cer_hz(z, H0, Omega_vac):
+    """Strict flat CER baseline."""
+    x = 1.0 + np.asarray(z)
     Omega_m = 1.0 - Omega_vac
+
+    F = Omega_vac + Omega_m * x**3
+    return H0 * np.sqrt(F)
+
+
+def get_Flat_cer_hz(z, H0, Omega_vac, Omega_r=9.3e-5):
+    """Radiation-inclusive early-universe extension."""
+    x = 1.0 + np.asarray(z)
+    Omega_m = 1.0 - Omega_vac - Omega_r
+
+    F = (
+        Omega_vac
+        + Omega_m * x**3
+        + Omega_r * x**4
+    )
+
+    return H0 * np.sqrt(F)
     
-    # Core fluid interaction tracking + High-z early radiation contribution
-    F = Omega_vac + Omega_m * (x ** (3.0 - alpha)) + Omega_r * (x ** 4.0)
-    return H0 * np.sqrt(np.clip(F, 0.0, None))
-
-
 class PrimordialRecombinationModule:
     def __init__(self, H0_fit, Omega_vac_fit, alpha=0.0, Omega_b=0.0493):
         # SI / MKS Physical Constants
@@ -110,10 +119,18 @@ class PrimordialRecombinationModule:
             dxe_dz = 0.0
         else:
             nH_z = self.nH0_cm3 * (1.0 + z)**3
-            x_2s, x_2p, A_2s, A_2p, B_2s, B_2p = self.solve_qss_populations(z, x_e, T_m, Tr)
-            dx_e_dt = (x_2s * B_2s - nH_z * (x_e**2) * A_2s) + (x_2p * B_2p - nH_z * (x_e**2) * A_2p)
-            dxe_dz = -dx_e_dt / ((1.0 + z) * H_z)
-            
+
+x_2s, x_2p, A_2s, A_2p, B_2s, B_2p = (
+    self.solve_qss_populations(z, x_e, T_m, Tr)
+)
+
+dx_e_dt = (
+    x_2s * B_2s - nH_z * (x_e**2) * A_2s
+    + x_2p * B_2p - nH_z * (x_e**2) * A_2p
+)
+
+dxe_dz = -dx_e_dt / ((1.0 + z) * H_z)
+
         gamma_c = self.get_compton_rate(z, x_e)
         dTm_dz = (2.0 * T_m / (1.0 + z)) + (gamma_c * (T_m - Tr) / ((1.0 + z) * H_z))
         return np.array([dxe_dz, dTm_dz])
