@@ -63,6 +63,8 @@ CC_DATA = np.array([
     [0.5100, 90.4, 1.90]
 ], dtype=float)
 
+R_D_FIXED = 144.5724  # Mpc; manually calculated using horizon_engine.py
+Z_D_FIXED = 1059.3402
 
 def get_flat_cer_hz(z, H0, Omega_vac):
     """Strict flat late-time CER baseline (alpha=0), H in km/s/Mpc."""
@@ -95,8 +97,7 @@ def objective_function(params, data=None):
         raise ValueError(
             "data must be finite and all sigma values positive"
         )
-R_D_FIXED = 144.5724  # Mpc; manually calculated using horizon_engine.py
-Z_D_FIXED = 1059.3402
+
     model = get_flat_cer_hz(
         tab[:, 0],
         float(params[0]),
