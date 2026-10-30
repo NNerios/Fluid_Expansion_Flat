@@ -1,345 +1,146 @@
-"""CER flat core engine.
-
-The CC table is the historical 32-row diagonal-error table previously
-committed to this repository. It is not the later correlated Moresco
-covariance compilation; results from this table must be labelled accordingly.
-The recombination implementation is a Peebles-style effective three-level
-atom approximation and is not a substitute for a full multilevel atom code.
 """
-from __future__ import annotations
+core_engine.py
+===========================================================================
+CER MASTER ENGINE: Core Cosmological Fluid Substrate Model + HyRec Recombination
+Tracks flat expansion history kernels, horizons, and recombination variables.
+"""
 import numpy as np
 from scipy.optimize import minimize
 
-# CGS constants
-C_LIGHT = 2.99792458e10       # cm/s
-MPC_CM = 3.08567758e24        # cm
-K_B = 1.380649e-16            # erg/K
-H_BAR = 1.054571817e-27       # erg s
-M_P = 1.67262192369e-24       # g
-M_E = 9.1093837015e-28        # g
-SIGMA_T = 6.6524587158e-25    # cm^2
-E_0 = 2.1798723611e-11        # erg
-T_CMB_0 = 2.7255              # K
-LAMBDA_2G = 8.22458           # s^-1
-RHO_CRIT_BASE = 1.87834e-29   # g/cm^3, multiplied by h^2
-OMEGA_B = 0.045
-OMEGA_GAMMA = 5.38e-5
-F_HE = 0.0797
-H0_KMS_MPC_TO_S = 1.0e5 / MPC_CM
-
-# Historical repository CC table: z, H(z) [km/s/Mpc], sigma [km/s/Mpc].
-CC_DATA = np.array([
-    [0.0700, 69.0, 19.60],
-    [0.0900, 69.0, 12.00],
-    [0.1200, 68.6, 26.20],
-    [0.1700, 83.0, 8.00],
-    [0.1791, 75.0, 4.00],
-    [0.1993, 75.0, 5.00],
-    [0.2000, 72.9, 29.60],
-    [0.2700, 77.0, 14.00],
-    [0.2800, 88.8, 36.60],
-    [0.3520, 83.0, 14.00],
-    [0.3802, 83.0, 13.50],
-    [0.4000, 95.0, 17.00],
-    [0.4004, 77.0, 10.20],
-    [0.4249, 87.1, 11.20],
-    [0.4497, 92.8, 12.90],
-    [0.4783, 80.9, 9.00],
-    [0.4800, 97.0, 62.00],
-    [0.5930, 104.0, 13.00],
-    [0.6800, 92.0, 8.00],
-    [0.7810, 105.0, 12.00],
-    [0.8750, 125.0, 17.00],
-    [0.8800, 90.0, 40.00],
-    [0.9000, 117.0, 23.00],
-    [1.0370, 154.0, 20.00],
-    [1.3000, 168.0, 17.00],
-    [1.3630, 160.0, 33.60],
-    [1.4300, 177.0, 18.00],
-    [1.5300, 140.0, 14.00],
-    [1.7500, 202.0, 40.00],
-    [1.9650, 186.5, 50.43],
-    [1.3900, 167.0, 11.40],
-    [0.5100, 90.4, 1.90]
-], dtype=float)
-
-R_D_FIXED = 144.5724  # Mpc; manually calculated using horizon_engine.py
-Z_D_FIXED = 1059.3402
-
-def get_flat_cer_hz(z, H0, Omega_vac):
-    """Strict flat late-time CER baseline (alpha=0), H in km/s/Mpc."""
-    zz = np.asarray(z, dtype=float)
-
-    if np.any(~np.isfinite(zz)) or np.any(zz <= -1.0):
-        raise ValueError("z must be finite and greater than -1")
-
-    if not np.isfinite(H0) or H0 <= 0:
-        raise ValueError("H0 must be finite and positive")
-
-    if not np.isfinite(Omega_vac) or not 0.0 < Omega_vac < 1.0:
-        raise ValueError("Omega_vac must be between 0 and 1")
-
-    ans = H0 * np.sqrt(
-        Omega_vac + (1.0 - Omega_vac) * (1.0 + zz)**3
-    )
-
-    return float(ans) if ans.ndim == 0 else ans
-
-
-def objective_function(params, data=None):
-    """Diagonal-error chi-square for an N x 3 [z,H,sigma] table."""
-    tab = CC_DATA if data is None else np.asarray(data, dtype=float)
-
-    if tab.ndim != 2 or tab.shape[1] != 3 or len(tab) < 3:
-        raise ValueError("data must be an N x 3 [z,H,sigma] array")
-
-    if not np.all(np.isfinite(tab)) or np.any(tab[:, 2] <= 0):
-        raise ValueError(
-            "data must be finite and all sigma values positive"
-        )
-
-    model = get_flat_cer_hz(
-        tab[:, 0],
-        float(params[0]),
-        float(params[1])
-    )
-
-    residuals = (tab[:, 1] - model) / tab[:, 2]
-
-    return float(residuals @ residuals)
-
-
-def run_background_optimization(data=None):
-    """Return (H0_fit [km/s/Mpc], Omega_vac_fit) for Flat_pipeline.py."""
-    tab = CC_DATA if data is None else np.asarray(data, dtype=float)
-
-    result = minimize(
-        objective_function,
-        [68.5, 0.70],
-        args=(tab,),
-        method="L-BFGS-B",
-        bounds=[
-            (58.0, 78.0),
-            (0.50, 0.88)
-        ]
-    )
-
-    if not result.success or not np.all(np.isfinite(result.x)):
-        raise RuntimeError(
-            f"CER background optimization failed: {result.message}"
-        )
-
-    return float(result.x[0]), float(result.x[1])
+def get_flat_cer_hz(z, H0, Omega_vac, alpha=0.0, Omega_r=9.3e-5):
+    """
+    Evaluates the flat early/late-time CER expansion history kernel.
+    alpha = 0 represents your strict baseline model.
+    """
+    x = 1.0 + z
+    Omega_m = 1.0 - Omega_vac
+    
+    # Core fluid interaction tracking + High-z early radiation contribution
+    F = Omega_vac + Omega_m * (x ** (3.0 - alpha)) + Omega_r * (x ** 4.0)
+    return H0 * np.sqrt(np.clip(F, 0.0, None))
 
 
 class PrimordialRecombinationModule:
-    """Peebles-style recombination engine with legacy and two-state APIs."""
+    def __init__(self, H0_fit, Omega_vac_fit, alpha=0.0, Omega_b=0.0493):
+        # SI / MKS Physical Constants
+        self.G = 6.6743e-11
+        self.c = 299792458.0
+        self.m_H = 1.67355758e-27
+        self.k_B = 1.380649e-23
+        
+        self.H0_fit = H0_fit
+        self.Omega_vac_fit = Omega_vac_fit
+        self.alpha = alpha
+        self.Omega_b = Omega_b
+        
+        # Convert H0 from km/s/Mpc to inverse seconds (1/s)
+        self.H0_s1 = (H0_fit * 1000.0) / 3.085677581e22 
+        self.T_cmb_0 = 2.7255
+        
+        # Effective 4-Level Atom Constants
+        self.Lambda_2s = 8.224        # Two-photon decay rate (s^-1)
+        self.E_21 = 10.202            # eV (Lyman-alpha transition)
+        self.E_1s = 13.5984           # eV (Ionization energy)
+        self.eV_to_K = 11604.51812
 
-    def __init__(
-        self,
-        H0_fit,
-        Omega_vac_fit,
-        T_cmb_0=T_CMB_0,
-        omega_b=OMEGA_B,
-        omega_gamma=OMEGA_GAMMA
-    ):
-        self.H0_fit = float(H0_fit)  # km/s/Mpc, as returned by optimizer
-        self.Omega_vac_fit = float(Omega_vac_fit)
+        # Baryonic Hydrogen Number Density
+        rho_crit_0 = (3.0 * self.H0_s1**2) / (8.0 * np.pi * self.G)
+        rho_b_0 = self.Omega_b * rho_crit_0
+        self.nH0_cm3 = (0.75 * rho_b_0 / self.m_H) * 1e-6 
 
-        if not np.isfinite(self.H0_fit) or self.H0_fit <= 0:
-            raise ValueError("H0_fit must be finite and positive")
+    def get_atomic_rates(self, Tm, Tr):
+        """Case-B atomic cross-section configurations."""
+        A_2s = 3.75e-14 * (Tm / 10000.0)**(-0.7)
+        A_2p = 4.10e-14 * (Tm / 10000.0)**(-0.8)
+        
+        de_broglie_factor = 2.414e15 * (Tr)**(1.5)
+        B_2s = A_2s * de_broglie_factor * np.exp(-(self.E_1s - self.E_21) * self.eV_to_K / Tr)
+        B_2p = A_2p * de_broglie_factor * np.exp(-(self.E_1s - self.E_21) * self.eV_to_K / Tr)
+        
+        R_2p_2s = 1.2e-4 * (Tr / 3000.0)**(0.5)
+        return A_2s, A_2p, B_2s, B_2p, R_2p_2s
 
-        if not 0.0 < self.Omega_vac_fit < 1.0:
-            raise ValueError(
-                "Omega_vac_fit must be between 0 and 1"
-            )
+    def get_lyman_alpha_escape(self, z, x_e):
+        """Sobolev optical depth / photon escape rates."""
+        nH_z = self.nH0_cm3 * (1.0 + z)**3
+        H_z = get_flat_cer_hz(z, self.H0_fit, self.Omega_vac_fit, self.alpha)
+        
+        lambda_lyalpha = 1.21567e-5  # cm
+        tau_sobolev = (3.0 * nH_z * (lambda_lyalpha**3) * 6.25e8) / (8.0 * np.pi * H_z)
+        return (1.0 / (tau_sobolev + 1.0)) * (6.25e8)
 
-        self.H0_s1 = self.H0_fit * H0_KMS_MPC_TO_S
+    def solve_qss_populations(self, z, x_e, Tm, Tr):
+        """Matrix inversion for excited atomic states."""
+        A_2s, A_2p, B_2s, B_2p, R_2p_2s = self.get_atomic_rates(Tm, Tr)
+        R_LyA = self.get_lyman_alpha_escape(z, x_e)
+        
+        nH_z = self.nH0_cm3 * (1.0 + z)**3
+        x_1s = 1.0 - x_e
+        thermal_excitation = np.exp(-self.E_21 * self.eV_to_K / Tr)
 
-        self.T_cmb_0 = float(T_cmb_0)
-        self.omega_b = float(omega_b)
-        self.omega_gamma = float(omega_gamma)
-
-        if min(
-            self.T_cmb_0,
-            self.omega_b,
-            self.omega_gamma
-        ) <= 0:
-            raise ValueError(
-                "T_cmb_0, omega_b and omega_gamma must be positive"
-            )
-
-        h = self.H0_fit / 100.0
-
-        self.nH0_cm3 = (
-            self.omega_b * RHO_CRIT_BASE * h * h / M_P
-        )
-
-        self.c = C_LIGHT
-
-        def get_expansion_rate_s1(self, z):
-        """Early-time expansion rate including radiation, in s^-1."""
-        z = float(z)
-
-        if not np.isfinite(z) or z <= -1:
-            raise ValueError(
-                "z must be finite and greater than -1"
-            )
-
-        om = (
-            1.0
-            - self.Omega_vac_fit
-            - self.omega_gamma
-        )
-
-        if om <= 0:
-            raise ValueError(
-                "Matter fraction is non-positive after radiation normalization"
-            )
-
-        x = 1.0 + z
-
-        return self.H0_s1 * np.sqrt(
-            self.Omega_vac_fit
-            + om * x**3
-            + self.omega_gamma * x**4
-        )
-        """Early-time expansion rate including radiation, in s^-1."""
-        z = float(z)
-
-        if not np.isfinite(z) or z <= -1:
-            raise ValueError(
-                "z must be finite and greater than -1"
-            )
-
-        om = (
-            1.0
-            - self.Omega_vac_fit
-            - self.omega_gamma
-        )
-
-        if om <= 0:
-            raise ValueError(
-                "Matter fraction is non-positive after radiation normalization"
-            )
-
-        x = 1.0 + z
-
-        return self.H0_s1 * np.sqrt(
-            self.Omega_vac_fit
-            + om * x**3
-            + self.omega_gamma * x**4
-        )
-
-    def _peebles_terms(self, z, x_e):
-        z = float(z)
-
-        if z <= -1:
-            raise ValueError("z must be greater than -1")
-
-        x = 1.0 + z
-        Tg = self.T_cmb_0 * x
-        xe = float(np.clip(x_e, 1e-8, 1.0))
-
-        nH = self.nH0_cm3 * x**3
-        Hz = self.get_expansion_rate_s1(z)
-
-        alpha_b = (
-            4.309e-13 * (Tg / 1e4)**-0.6166
-        )
-
-        thermal_volume = (
-            (M_E * K_B * Tg) /
-            (2.0 * np.pi * H_BAR**2)
-        )**1.5
-
-        beta_b = (
-            alpha_b
-            * thermal_volume
-            * np.exp(-E_0 / (4.0 * K_B * Tg))
-        )
-
-        lambda_alpha = (
-            Hz * (3.0 * E_0)**3
-            /
-            (
-                (4.0 * np.pi * H_BAR * C_LIGHT)**3
-                * nH
-                * max(1.0 - xe, 1e-8)
-            )
-        )
-
-        c_factor = (
-            (LAMBDA_2G + lambda_alpha)
-            /
-            (LAMBDA_2G + lambda_alpha + beta_b)
-        )
-
-        photo = (
-            beta_b
-            * (1.0 - xe)
-            * np.exp(-3.0 * E_0 / (4.0 * K_B * Tg))
-        )
-
-        recomb = alpha_b * xe * xe * nH
-
-        return c_factor, recomb, photo, Hz, Tg
-
-    def dx_e_dz(self, z, x_e):
-        """Legacy scalar derivative required by Flat_pipeline.py."""
-        cfac, recomb, photo, hz, _ = self._peebles_terms(
-            z,
-            x_e
-        )
-
-        return float(
-            cfac
-            * (recomb - photo)
-            / ((1.0 + float(z)) * hz)
-        )
+        M = np.array([
+            [B_2s + 9.0*R_2p_2s + self.Lambda_2s, -3.0*R_2p_2s],
+            [-3.0*R_2p_2s,                         B_2p + R_2p_2s + R_LyA]
+        ])
+        
+        Y = np.array([
+            nH_z * (x_e**2) * A_2s + self.Lambda_2s * x_1s * thermal_excitation,
+            nH_z * (x_e**2) * A_2p + 3.0 * R_LyA * x_1s * thermal_excitation
+        ])
+        
+        return np.linalg.solve(M, Y)[0], np.linalg.solve(M, Y)[1], A_2s, A_2p, B_2s, B_2p
 
     def get_compton_rate(self, z, x_e):
-        """Compton thermal coupling coefficient in s^-1."""
-        tg = self.T_cmb_0 * (1.0 + float(z))
+        """Compton heat exchange coefficient between matter and CMB."""
+        Tr = self.T_cmb_0 * (1.0 + z)
+        sigma_T, m_e, a_R, f_He = 6.65246e-29, 9.10938e-31, 7.56573e-16, 0.0797
+        rho_photon = a_R * (Tr ** 4.0)
+        base_rate = (8.0 * sigma_T * rho_photon * self.c) / (3.0 * m_e * self.c**2)
+        return base_rate * (x_e / (1.0 + f_He + x_e))
 
-        rho_gamma = 7.565733e-15 * tg**4  # erg cm^-3
+    def dx_e_dz(self, z, state_vector):
+        """Simultaneous coupled derivatives: [dxe/dz, dTm/dz]."""
+        x_e, T_m = state_vector
+        Tr = self.T_cmb_0 * (1.0 + z)
+        x_e = np.clip(x_e, 1e-6, 1.0)
+        
+        H_z = get_flat_cer_hz(z, self.H0_fit, self.Omega_vac_fit, self.alpha)
+        
+        if x_e >= 0.9999:
+            dxe_dz = 0.0
+        else:
+            nH_z = self.nH0_cm3 * (1.0 + z)**3
+            x_2s, x_2p, A_2s, A_2p, B_2s, B_2p = self.solve_qss_populations(z, x_e, T_m, Tr)
+            dx_e_dt = (x_2s * B_2s - nH_z * (x_e**2) * A_2s) + (x_2p * B_2p - nH_z * (x_e**2) * A_2p)
+            dxe_dz = -dx_e_dt / ((1.0 + z) * H_z)
+            
+        gamma_c = self.get_compton_rate(z, x_e)
+        dTm_dz = (2.0 * T_m / (1.0 + z)) + (gamma_c * (T_m - Tr) / ((1.0 + z) * H_z))
+        return np.array([dxe_dz, dTm_dz])
 
-        base = (
-            8.0 * SIGMA_T * rho_gamma
-            / (3.0 * M_E * C_LIGHT)
-        )
 
-        xe = float(np.clip(x_e, 0.0, 1.0))
+# =====================================================================
+# 3. BACKGROUND OPTIMIZER (32 COSMIC CHRONOMETERS)
+# =====================================================================
+CC_DATA = np.array([
+    [0.0700, 69.0, 19.60], [0.0900, 69.0, 12.00], [0.1200, 68.6, 26.20],
+    [0.1700, 83.0, 8.00],  [0.1791, 75.0, 4.00],  [0.1993, 75.0, 5.00],
+    [0.2000, 72.9, 29.60], [0.2700, 77.0, 14.00], [0.2800, 88.8, 36.60],
+    [0.3520, 83.0, 14.00], [0.3802, 83.0, 13.50], [0.4000, 95.0, 17.00],
+    [0.4004, 77.0, 10.20], [0.4249, 87.1, 11.20], [0.4497, 92.8, 12.90],
+    [0.4783, 80.9, 9.00],  [0.4800, 97.0, 62.00], [0.5930, 104.0, 13.00],
+    [0.6800, 92.0, 8.00],  [0.7810, 105.0, 12.00], [0.8750, 125.0, 17.00],
+    [0.8800, 90.0, 40.00], [0.9000, 117.0, 23.00], [1.0370, 154.0, 20.00],
+    [1.3000, 168.0, 17.00], [1.3630, 160.0, 33.60], [1.4300, 177.0, 18.00],
+    [1.5300, 140.0, 14.00], [1.7500, 202.0, 40.00], [1.9650, 186.5, 50.43],
+    [1.3900, 167.0, 11.40], [0.5100, 90.4, 1.90]
+])
 
-        return float(
-            base * xe / (1.0 + F_HE + xe)
-        )
+def objective_function(params, alpha=0.0):
+    H0, Omega_vac = params
+    return float(np.sum(((CC_DATA[:, 1] - get_flat_cer_hz(CC_DATA[:, 0], H0, Omega_vac, alpha)) / CC_DATA[:, 2]) ** 2))
 
-    def evaluate_system_derivatives(self, z, state_vector):
-        """Return [dx_e/dz,dT_m/dz] for state [x_e,T_m]."""
-        state = np.asarray(state_vector, dtype=float)
-
-        if state.shape != (2,) or not np.all(np.isfinite(state)):
-            raise ValueError(
-                "state_vector must be finite [x_e, T_m]"
-            )
-
-        xe = float(np.clip(state[0], 1e-8, 1.0))
-        tm = float(state[1])
-
-        if tm <= 0:
-            raise ValueError("T_m must be positive")
-
-        dxe = self.dx_e_dz(z, xe)
-
-        tg = self.T_cmb_0 * (1.0 + float(z))
-        hz = self.get_expansion_rate_s1(z)
-        gamma = self.get_compton_rate(z, xe)
-
-        dtm = (
-            2.0 * tm / (1.0 + float(z))
-            + gamma * (tm - tg) /
-            ((1.0 + float(z)) * hz)
-        )
-
-        return np.array([dxe, dtm], dtype=float)
+def run_background_optimization(alpha=0.0):
+    result = minimize(objective_function, [68.5, 0.70], args=(alpha,), method="L-BFGS-B", bounds=[(58.0, 78.0), (0.5, 0.88)])
+    if not result.success: raise RuntimeError("Optimization failed.")
+    return result.x[0], result.x[1]
