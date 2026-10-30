@@ -178,25 +178,33 @@ class PrimordialRecombinationModule:
         self.c = C_LIGHT
 
     def get_early_hz(z):
-    """
-    Shared CER expansion history for early-universe calculations.
-    Returns H(z) in s^-1.
+     def get_expansion_rate_s1(self, z):
+        """Early-time expansion rate including radiation, in s^-1."""
+        z = float(z)
 
-    Uses the same fitted H0 and Omega_vac as core_engine.py.
-    Radiation is included and the matter exponent remains 3 (alpha=0).
-    """
-    z = float(z)
+        if not np.isfinite(z) or z <= -1:
+            raise ValueError(
+                "z must be finite and greater than -1"
+            )
 
-    if not np.isfinite(z) or z <= -1.0:
-        raise ValueError("z must be finite and greater than -1.")
+        om = (
+            1.0
+            - self.Omega_vac_fit
+            - self.omega_gamma
+        )
 
-    x = 1.0 + z
+        if om <= 0:
+            raise ValueError(
+                "Matter fraction is non-positive after radiation normalization"
+            )
 
-    return H0_CGS * np.sqrt(
-        OMEGA_VAC
-        + OMEGA_M0 * x**3
-        + OMEGA_GAM * x**4
-    )
+        x = 1.0 + z
+
+        return self.H0_s1 * np.sqrt(
+            self.Omega_vac_fit
+            + om * x**3
+            + self.omega_gamma * x**4
+        )
 
     def _peebles_terms(self, z, x_e):
         z = float(z)
