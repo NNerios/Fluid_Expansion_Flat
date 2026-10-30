@@ -177,8 +177,33 @@ class PrimordialRecombinationModule:
 
         self.c = C_LIGHT
 
-    def get_early_hz(z):
-     def get_expansion_rate_s1(self, z):
+        def get_expansion_rate_s1(self, z):
+        """Early-time expansion rate including radiation, in s^-1."""
+        z = float(z)
+
+        if not np.isfinite(z) or z <= -1:
+            raise ValueError(
+                "z must be finite and greater than -1"
+            )
+
+        om = (
+            1.0
+            - self.Omega_vac_fit
+            - self.omega_gamma
+        )
+
+        if om <= 0:
+            raise ValueError(
+                "Matter fraction is non-positive after radiation normalization"
+            )
+
+        x = 1.0 + z
+
+        return self.H0_s1 * np.sqrt(
+            self.Omega_vac_fit
+            + om * x**3
+            + self.omega_gamma * x**4
+        )
         """Early-time expansion rate including radiation, in s^-1."""
         z = float(z)
 
